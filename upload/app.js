@@ -24,7 +24,7 @@
 //                       key ceremony).
 // ==========================================================================
 const CONFIG = {
-  RELAY_URL: 'https://secure-doc-upload-relay.uniontpkedental.workers.dev/upload', // deployed Nov 26, 2026 (docs/GO-LIVE.md Phase 3 step 8)
+  RELAY_URL: 'https://secure-doc-upload-relay.uniontpkedental.workers.dev/upload', // <-- set at deploy: https://secure-doc-upload-relay.<account-subdomain>.workers.dev/upload (docs/GO-LIVE.md)
   PUBLIC_KEY_URL: './public-key.asc',
   KEY_LABEL: 'PRODUCTION — Union Tpke Dental office key (generated on softdentsync, Nov 26, 2026)',
   EXPECTED_KEY_FINGERPRINT: '306460877b9e71ab509eb27f08e569aa16ae8ddb',
@@ -124,11 +124,41 @@ codeInput.addEventListener('change', () => fetchCodeInfo(codeInput.value));
 // they had typed it and left the field — so they are one tap from
 // picking their file. A malformed or missing param is ignored
 // silently; manual entry below keeps working exactly as before.
+//
+// The link also carries the patient's name (…&name=Jane%20Doe) as a
+// FALLBACK prefill: /code-info normally supplies the name, but if the
+// lookup can't run (hand-issued code with no stored name, relay
+// hiccup) the field is still filled and the patient types nothing.
+// The name is never trusted over /code-info — a code-info name
+// replaces it (fetchCodeInfo overwrites nameAutoFilled) — and
+// neither source overwrites text the patient typed themselves.
+let urlName = '';  // sanitized ?name= fallback from the link
+
+function sanitizeUrlName(raw) {
+  if (!raw) return '';
+  // URLSearchParams has already percent-decoded the value. Strip
+  // control characters, trim, and cap the length — this is a prefill
+  // convenience, not data worth trusting at arbitrary size.
+  return raw.replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 80).trim();
+}
+
+function applyUrlNameFallback() {
+  if (!urlName) return;
+  if (codeInfo && codeInfo.patientName) return; // code-info wins
+  if (!patientInput.value.trim() || patientInput.value === nameAutoFilled) {
+    patientInput.value = urlName;
+    nameAutoFilled = urlName;
+  }
+}
+
 (function initCodeFromUrl() {
   let param = '';
   try {
     param = new URLSearchParams(window.location.search).get('code') ?? '';
+    urlName = sanitizeUrlName(
+      new URLSearchParams(window.location.search).get('name') ?? '');
   } catch { return; }
+  applyUrlNameFallback();
   const normalized = normalizeCode(param);
   if (!isValidCodeFormat(normalized)) return;
   codeInput.value = normalized;
