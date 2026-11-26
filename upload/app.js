@@ -32,12 +32,20 @@ const CONFIG = {
 
 import * as openpgp from './vendor/openpgp.min.mjs';
 import { encryptDocument } from './encrypt.mjs';
-import { isValidCodeFormat } from './codes.mjs';
+import { isValidCodeFormat, normalizeCode } from './codes.mjs';
 
 const form = document.getElementById('upload-form');
 const status = document.getElementById('status');
 const keyinfo = document.getElementById('keyinfo');
 const button = document.getElementById('go');
+const codeInput = document.getElementById('code');
+const patientInput = document.getElementById('patient');
+const requestInfo = document.getElementById('requestinfo');
+
+// The relay's /code-info endpoint lives next to /upload.
+const CODE_INFO_URL = CONFIG.RELAY_URL
+  ? CONFIG.RELAY_URL.replace(/\/upload\/?$/, '/code-info')
+  : '';
 
 const CODE_PROBLEM_MESSAGE =
   'This upload code isn’t valid or has expired. Upload codes work once and ' +
@@ -67,6 +75,57 @@ async function initKey() {
   }
 }
 initKey();
+
+// ---------------------------------------------------------------------
+// Code info: when the office issued this code for a specific document
+// request (staff console), the relay can say what was requested. We ask
+// when the patient leaves the code field (and again at submit if we
+// haven't yet), show "Union Tpke Dental requested: …", prefill the
+// name, and stamp the request fields into the manifest so the office
+// can tie the filed document back to the request. ANY failure — plain
+// code, relay unreachable, old relay without /code-info — silently
+// falls back to the plain flow; nothing here may block an upload.
+// ---------------------------------------------------------------------
+let codeInfo = null;      // last successful /code-info body
+let codeInfoFor = '';     // normalized code it belongs to
+let nameAutoFilled = '';  // value we last prefilled into the name field
+
+async function fetchCodeInfo(code) {
+  const normalized = normalizeCode(code);
+  if (!CODE_INFO_URL || !isValidCodeFormat(normalized)) return;
+  if (codeInfoFor === normalized && codeInfo) return;
+  try {
+    const resp = await fetch(`${CODE_INFO_URL}?code=${encodeURIComponent(normalized)}`);
+    if (!resp.ok) return;
+    const body = await resp.json();
+    if (!body || body.ok !== true) return;
+    if (normalizeCode(codeInput.value) !== normalized) return; // field moved on
+    codeInfo = body;
+    codeInfoFor = normalized;
+    if (body.category) {
+      requestInfo.style.display = 'block';
+      requestInfo.textContent =
+        `Union Tpke Dental requested: ${body.category}` +
+        (body.note ? ` (${body.note})` : '');
+    }
+    if (body.patientName && (!patientInput.value.trim() || patientInput.value === nameAutoFilled)) {
+      patientInput.value = body.patientName;
+      nameAutoFilled = body.patientName;
+    }
+  } catch { /* silent fallback — plain flow */ }
+}
+codeInput.addEventListener('change', () => fetchCodeInfo(codeInput.value));
+codeInput.addEventListener('input', () => {
+  // A different code invalidates what we showed/prefilled for the old one.
+  if (codeInfoFor && normalizeCode(codeInput.value) !== codeInfoFor) {
+    codeInfo = null;
+    codeInfoFor = '';
+    requestInfo.style.display = 'none';
+    requestInfo.textContent = '';
+    if (patientInput.value === nameAutoFilled) patientInput.value = '';
+    nameAutoFilled = '';
+  }
+});
 
 function download(name, data, type) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -124,6 +183,18 @@ form.addEventListener('submit', async (e) => {
       return;
     }
 
+    // If the code field never blurred, ask the relay what this code is
+    // for now, so the manifest still carries the request fields.
+    if (CONFIG.RELAY_URL) await fetchCodeInfo(uploadCode);
+    const requestFields = codeInfo && codeInfoFor === normalizeCode(uploadCode)
+      ? {
+          category: codeInfo.category ?? null,
+          note: codeInfo.note ?? null,
+          requestId: codeInfo.requestId ?? null,
+          patientRecordId: codeInfo.patientRecordId ?? null,
+        }
+      : {};
+
     status.textContent = 'Encrypting in your browser…';
     const fileBytes = new Uint8Array(await file.arrayBuffer());
     const { ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
@@ -131,6 +202,7 @@ form.addEventListener('submit', async (e) => {
       patientName,
       originalFilename: file.name,
       fileBytes,
+      ...requestFields,
     });
 
     if (CONFIG.RELAY_URL) {
