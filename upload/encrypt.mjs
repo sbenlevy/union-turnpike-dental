@@ -22,6 +22,10 @@ export async function encryptDocument(openpgp, publicKeyArmored, {
   patientName,
   originalFilename,
   fileBytes,
+  category = null,
+  note = null,
+  requestId = null,
+  patientRecordId = null,
 }) {
   if (!uploadCode || !patientName || !originalFilename || !fileBytes) {
     throw new Error('uploadCode, patientName, originalFilename and fileBytes are all required');
@@ -44,5 +48,15 @@ export async function encryptDocument(openpgp, publicKeyArmored, {
     sizeBytes: fileBytes.length,
     createdAt: new Date().toISOString(),
   };
+  // Document-request fields (staff console flow): present only when the
+  // code was issued for a specific request and the page learned them
+  // from the relay's /code-info. The office agent copies them into its
+  // audit entry, which is how a filed document is tied back to the
+  // request and the patient's SoftDent record. Plain codes omit them,
+  // keeping plain-code manifests byte-for-byte the old shape.
+  if (category) manifest.category = category;
+  if (note) manifest.note = note;
+  if (requestId) manifest.requestId = requestId;
+  if (patientRecordId) manifest.patientRecordId = patientRecordId;
   return { ciphertext: new Uint8Array(ciphertext), manifest };
 }
