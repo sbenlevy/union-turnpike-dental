@@ -79,8 +79,9 @@ initKey();
 // ---------------------------------------------------------------------
 // Code info: when the office issued this code for a specific document
 // request (staff console), the relay can say what was requested. We ask
-// when the patient leaves the code field (and again at submit if we
-// haven't yet), show "Union Tpke Dental requested: …", prefill the
+// when the patient leaves the code field, on load when the link itself
+// carried the code (see initCodeFromUrl below), and again at submit if
+// we haven't yet; show "Union Tpke Dental requested: …", prefill the
 // name, and stamp the request fields into the manifest so the office
 // can tie the filed document back to the request. ANY failure — plain
 // code, relay unreachable, old relay without /code-info — silently
@@ -115,6 +116,25 @@ async function fetchCodeInfo(code) {
   } catch { /* silent fallback — plain flow */ }
 }
 codeInput.addEventListener('change', () => fetchCodeInfo(codeInput.value));
+
+// Deep link: the office's text/email carries the code in the link
+// itself (…/upload/?code=XXXX-XXXX-XXXX), because a patient cannot
+// select/copy just the code out of a text message on a phone. One tap
+// lands here with the code filled in and looked up — exactly as if
+// they had typed it and left the field — so they are one tap from
+// picking their file. A malformed or missing param is ignored
+// silently; manual entry below keeps working exactly as before.
+(function initCodeFromUrl() {
+  let param = '';
+  try {
+    param = new URLSearchParams(window.location.search).get('code') ?? '';
+  } catch { return; }
+  const normalized = normalizeCode(param);
+  if (!isValidCodeFormat(normalized)) return;
+  codeInput.value = normalized;
+  fetchCodeInfo(normalized);
+})();
+
 codeInput.addEventListener('input', () => {
   // A different code invalidates what we showed/prefilled for the old one.
   if (codeInfoFor && normalizeCode(codeInput.value) !== codeInfoFor) {
