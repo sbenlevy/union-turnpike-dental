@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Union Tpke Dental — Secure Document Upload</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  .poc { background: #fff3cd; border: 1px solid #e0a800; border-radius: 8px; padding: .6rem .9rem; font-size: .9rem; }
+  label { display: block; margin: 1rem 0 .3rem; font-weight: 600; }
+  input[type=text], input[type=file] { width: 100%; box-sizing: border-box; padding: .5rem; font-size: 1rem; }
+  button { margin-top: 1.2rem; padding: .7rem 1.2rem; font-size: 1rem; border: 0; border-radius: 8px; background: #0b5fa5; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; }
+  #status { margin-top: 1rem; white-space: pre-wrap; font-size: .92rem; }
+  .ok { color: #146c2e; } .err { color: #b3261e; }
+  code { word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>Secure Document Upload</h1>
+<p class="poc"><strong>Secure upload.</strong> Your document is encrypted <em>in your browser</em> with the office's public key before anything leaves your device. Only the office can decrypt it.</p>
+
+<p id="keyinfo" aria-live="polite">Loading the office encryption key…</p>
+
+<form id="upload-form">
+  <label for="code">Upload code (given to you by the office)</label>
+  <input type="text" id="code" required autocomplete="off" placeholder="e.g. XXXX-XXXX-XXXX">
+  <p style="font-size:.9rem;margin:.2rem 0 0">Codes work once and expire after a short time.
+  If yours doesn’t work, call the office and we’ll text you a new one.</p>
+
+  <label for="patient">Patient name</label>
+  <input type="text" id="patient" required autocomplete="off" placeholder="e.g. Jane Doe">
+
+  <label for="file">Document to send</label>
+  <input type="file" id="file" required>
+
+  <button type="submit" id="go">Encrypt &amp; send document</button>
+</form>
+
+<div id="status" aria-live="polite"></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
