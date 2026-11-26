@@ -34,6 +34,31 @@ export function normalizeCode(code) {
   return typeof code === 'string' ? code.trim().toUpperCase() : '';
 }
 
+// Generation alphabet: ambiguous glyphs 0/O and 1/I/L excluded, so codes
+// survive being read over the phone. 31 symbols.
+export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+// Generate one production-format code (XXXX-XXXX-XXXX) from a CSPRNG.
+// Uses WebCrypto (globalThis.crypto), available in both the Cloudflare
+// Worker runtime and Node >= 19, so the Worker (POST /issue) and local
+// tooling share this one generator. Rejection sampling keeps every
+// symbol equally likely (256 is not a multiple of 31).
+export function generateUploadCode() {
+  const LIMIT = 256 - (256 % CODE_ALPHABET.length); // 248
+  const chars = [];
+  while (chars.length < 12) {
+    const bytes = new Uint8Array(24);
+    globalThis.crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b >= LIMIT) continue;
+      chars.push(CODE_ALPHABET[b % CODE_ALPHABET.length]);
+      if (chars.length === 12) break;
+    }
+  }
+  const flat = chars.join('');
+  return `${flat.slice(0, 4)}-${flat.slice(4, 8)}-${flat.slice(8, 12)}`;
+}
+
 // Minimal store interface used by validateUploadCode:
 //   store.get(code)        -> Promise<record|null>
 //   store.put(code, record)-> Promise<void>
