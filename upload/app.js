@@ -1,0 +1,160 @@
+// Upload page logic. Encryption happens entirely in the browser using the
+// SAME shared code path as the automated test: ../shared/encrypt.mjs.
+// Serve the repo root over HTTP (see README) so the relative imports resolve.
+
+// ==========================================================================
+// CUTOVER CONFIG — the ONLY block that changes between POC and production.
+// --------------------------------------------------------------------------
+// RELAY_URL:            Production: the deployed relay endpoint, e.g.
+//                       'https://secure-doc-upload-relay.<acct>.workers.dev/upload'.
+//                       Empty string = POC mode: no relay, the encrypted
+//                       file is downloaded instead of sent.
+// PUBLIC_KEY_URL:       The office public key the page encrypts to. At
+//                       cutover this file is REPLACED with the production
+//                       public key produced by the key ceremony
+//                       (docs/KEY-CEREMONY.md) — the POC key below must
+//                       never encrypt a real patient document.
+// KEY_LABEL:            Human label shown on the page next to the key
+//                       fingerprint so staff can confirm at a glance which
+//                       key is live.
+// EXPECTED_KEY_FINGERPRINT: The page refuses to run if the key it loaded
+//                       doesn't match this fingerprint — a tripwire against
+//                       the wrong key file being published. Set to the
+//                       production fingerprint at cutover (printed by the
+//                       key ceremony).
+// ==========================================================================
+const CONFIG = {
+  RELAY_URL: 'https://secure-doc-upload-relay.uniontpkedental.workers.dev/upload', // deployed Nov 26, 2026 (docs/GO-LIVE.md Phase 3 step 8)
+  PUBLIC_KEY_URL: './public-key.asc',
+  KEY_LABEL: 'PRODUCTION — Union Tpke Dental office key (generated on softdentsync, Nov 26, 2026)',
+  EXPECTED_KEY_FINGERPRINT: '306460877b9e71ab509eb27f08e569aa16ae8ddb',
+};
+
+import * as openpgp from './vendor/openpgp.min.mjs';
+import { encryptDocument } from './encrypt.mjs';
+import { isValidCodeFormat } from './codes.mjs';
+
+const form = document.getElementById('upload-form');
+const status = document.getElementById('status');
+const keyinfo = document.getElementById('keyinfo');
+const button = document.getElementById('go');
+
+const CODE_PROBLEM_MESSAGE =
+  'This upload code isn’t valid or has expired. Upload codes work once and ' +
+  'only for a limited time. Please call the office and we’ll text you a new code.';
+
+let publicKeyArmored = null;
+
+// Load the encryption key up front, verify it against the configured
+// fingerprint, and show both on the page. If anything is off, disable the
+// form — encrypting to the wrong key would make the document unreadable
+// to the office (or worse, readable by someone else).
+async function initKey() {
+  try {
+    publicKeyArmored = await (await fetch(CONFIG.PUBLIC_KEY_URL)).text();
+    const key = await openpgp.readKey({ armoredKey: publicKeyArmored });
+    const fingerprint = key.getFingerprint().toLowerCase();
+    keyinfo.textContent = `Encryption key: ${CONFIG.KEY_LABEL} · fingerprint ${fingerprint}`;
+    if (CONFIG.EXPECTED_KEY_FINGERPRINT && fingerprint !== CONFIG.EXPECTED_KEY_FINGERPRINT.toLowerCase()) {
+      keyinfo.textContent += ' — MISMATCH with configured fingerprint. Uploads are disabled; please call the office.';
+      keyinfo.className = 'err';
+      button.disabled = true;
+    }
+  } catch (err) {
+    keyinfo.textContent = `Could not load the office encryption key (${err.message}). Uploads are disabled; please call the office.`;
+    keyinfo.className = 'err';
+    button.disabled = true;
+  }
+}
+initKey();
+
+function download(name, data, type) {
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Send the ciphertext + manifest to the relay (production mode).
+// Returns true on success; on a known relay error, shows the matching
+// patient-friendly message and returns false.
+async function sendViaRelay({ uploadCode, patientName, ciphertext, manifest }) {
+  const formData = new FormData();
+  formData.set('code', uploadCode);
+  formData.set('patientName', patientName);
+  formData.set('manifest', JSON.stringify(manifest));
+  formData.set('file', new Blob([ciphertext], { type: 'application/octet-stream' }), `${manifest.originalFilename}.pgp`);
+
+  const resp = await fetch(CONFIG.RELAY_URL, { method: 'POST', body: formData });
+  let body = {};
+  try { body = await resp.json(); } catch { /* non-JSON error page */ }
+  if (resp.ok && body.ok) return true;
+
+  status.className = 'err';
+  if (body.error === 'code_expired' || body.error === 'code_invalid' || body.error === 'code_used') {
+    status.textContent = CODE_PROBLEM_MESSAGE;
+  } else if (body.error === 'too_large') {
+    status.textContent = 'That document is too large to send this way (25 MB maximum). Please call the office and we’ll arrange another way.';
+  } else {
+    status.textContent = 'Something went wrong while sending. Please try again, or call the office for help.';
+  }
+  return false;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  button.disabled = true;
+  status.className = '';
+  try {
+    const uploadCode = document.getElementById('code').value.trim();
+    const patientName = document.getElementById('patient').value.trim();
+    const file = document.getElementById('file').files[0];
+    if (!file) throw new Error('Choose a document first.');
+    if (!publicKeyArmored) throw new Error('The encryption key has not loaded yet — wait a moment and try again.');
+
+    // In production mode the relay is the authority on codes, but a
+    // format pre-check here gives the patient the friendly message
+    // instantly instead of after a round trip. (POC mode has no relay;
+    // the demo code from the README is accepted there.)
+    if (CONFIG.RELAY_URL && !isValidCodeFormat(uploadCode)) {
+      status.className = 'err';
+      status.textContent = CODE_PROBLEM_MESSAGE;
+      return;
+    }
+
+    status.textContent = 'Encrypting in your browser…';
+    const fileBytes = new Uint8Array(await file.arrayBuffer());
+    const { ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
+      uploadCode,
+      patientName,
+      originalFilename: file.name,
+      fileBytes,
+    });
+
+    if (CONFIG.RELAY_URL) {
+      status.textContent = 'Encrypted. Sending securely…';
+      const sent = await sendViaRelay({ uploadCode, patientName, ciphertext, manifest });
+      if (sent) {
+        status.className = 'ok';
+        status.textContent = 'Done — your document was encrypted on this device and sent to the office. You can close this page.';
+      }
+    } else {
+      const base = file.name.replace(/[^\w.-]+/g, '_');
+      download(`${base}.pgp`, ciphertext, 'application/octet-stream');
+      download(`${base}.manifest.json`, JSON.stringify(manifest, null, 2), 'application/json');
+      status.className = 'ok';
+      status.textContent =
+        `Done. Your document was encrypted before leaving this device.\n` +
+        `Downloaded: ${base}.pgp and ${base}.manifest.json\n` +
+        `(POC mode — in production these are sent to the office automatically.)\n` +
+        `SHA-256 of original: ${manifest.sha256}`;
+    }
+  } catch (err) {
+    status.className = 'err';
+    status.textContent = `Something went wrong: ${err.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
