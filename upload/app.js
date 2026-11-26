@@ -125,21 +125,61 @@ codeInput.addEventListener('change', () => fetchCodeInfo(codeInput.value));
 // picking their file. A malformed or missing param is ignored
 // silently; manual entry below keeps working exactly as before.
 //
-// The link also carries the patient's name (…&name=Jane%20Doe) as a
-// FALLBACK prefill: /code-info normally supplies the name, but if the
-// lookup can't run (hand-issued code with no stored name, relay
-// hiccup) the field is still filled and the patient types nothing.
-// The name is never trusted over /code-info — a code-info name
-// replaces it (fetchCodeInfo overwrites nameAutoFilled) — and
-// neither source overwrites text the patient typed themselves.
-let urlName = '';  // sanitized ?name= fallback from the link
+// The link also carries the patient's name as an ENCRYPTED token
+// (…&n=<TOKEN>) — a FALLBACK prefill for when /code-info can't
+// supply the name (hand-issued code with no stored name, relay
+// hiccup). The name never appears in the link in readable form.
+//
+// TOKEN = base64url( salt[16] || iv[12] || AES-256-GCM ct+tag ) of
+// the UTF-8 name, key = PBKDF2-HMAC-SHA256(password = the upload
+// code, salt, 100,000 iterations, 32-byte key). The senders
+// (office-agent/send_text.py, send_email.py) encrypt; this page
+// decrypts with WebCrypto using the ?code= value (normalizeCode
+// output — identical to the code as issued for real codes, which
+// are canonical uppercase). This is READABILITY protection, not
+// access control: anyone holding the full link holds the code and
+// can decrypt. It keeps the name out of message logs, link
+// previews and screenshots — nothing more is claimed for it.
+//
+// The token never wins over /code-info (a code-info name replaces
+// a token-prefilled one, via nameAutoFilled), and neither source
+// overwrites text the patient typed themselves. ANY decrypt
+// failure — bad token, wrong code, malformed — is silently
+// ignored and the plain flow continues.
+let urlName = '';  // name decrypted from the ?n= token, once resolved
 
 function sanitizeUrlName(raw) {
   if (!raw) return '';
-  // URLSearchParams has already percent-decoded the value. Strip
-  // control characters, trim, and cap the length — this is a prefill
+  // Strip control characters, trim, and cap the length — a prefill
   // convenience, not data worth trusting at arbitrary size.
   return raw.replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 80).trim();
+}
+
+function base64UrlDecode(token) {
+  const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+  const bin = atob(padded);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function decryptUrlName(token, code) {
+  try {
+    if (!token || !code || !window.crypto?.subtle) return '';
+    const raw = base64UrlDecode(token);
+    if (raw.length < 16 + 12 + 16) return ''; // salt + iv + tag minimum
+    const salt = raw.slice(0, 16);
+    const iv = raw.slice(16, 28);
+    const ciphertext = raw.slice(28);
+    const baseKey = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(code), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      baseKey, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    return sanitizeUrlName(new TextDecoder().decode(plain));
+  } catch { return ''; } // silent — plain flow
 }
 
 function applyUrlNameFallback() {
@@ -153,13 +193,21 @@ function applyUrlNameFallback() {
 
 (function initCodeFromUrl() {
   let param = '';
+  let token = '';
   try {
     param = new URLSearchParams(window.location.search).get('code') ?? '';
-    urlName = sanitizeUrlName(
-      new URLSearchParams(window.location.search).get('name') ?? '');
+    token = new URLSearchParams(window.location.search).get('n') ?? '';
   } catch { return; }
-  applyUrlNameFallback();
   const normalized = normalizeCode(param);
+  if (token && isValidCodeFormat(normalized)) {
+    // Fire and forget: prefill whenever the decrypt resolves, unless
+    // code-info (or the patient) got there first — applyUrlNameFallback
+    // and fetchCodeInfo together guarantee code-info wins and typed
+    // text is never overwritten.
+    decryptUrlName(token, normalized).then((name) => {
+      if (name) { urlName = name; applyUrlNameFallback(); }
+    });
+  }
   if (!isValidCodeFormat(normalized)) return;
   codeInput.value = normalized;
   fetchCodeInfo(normalized);
