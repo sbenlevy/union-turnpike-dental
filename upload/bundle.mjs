@@ -20,6 +20,11 @@
 //     carrier, memberId, group | null,
 //     subscriber: { name, dob, relationship } | null,  // null = the
 //                                // plan is in the patient's own name
+//     photosStatus: "provided" | "not_with_me",  // "not_with_me" =
+//                                // the patient declared the plan but
+//                                // didn't have the card with them;
+//                                // photos are then both null and the
+//                                // plan contributes no files
 //     photos: { front: <bundle file name> | null,
 //               back:  <bundle file name> | null } }
 //
@@ -80,7 +85,10 @@ function extOf(filename) {
  */
 export function buildBundle({ fields, files }) {
   if (!fields || typeof fields !== 'object') throw new Error('bundle needs a fields object');
-  if (!Array.isArray(files) || files.length === 0) throw new Error('bundle needs at least one file');
+  if (!Array.isArray(files)) throw new Error('bundle needs a files array');
+  // An empty files array is legitimate: every declared plan said
+  // "I don't have this card with me right now" (photosStatus
+  // "not_with_me") — the typed fields still travel.
   const entries = [];
   const chunks = [];
   for (const f of files) {
@@ -138,7 +146,7 @@ export function parseBundle(bytes) {
   }
   if (header.version !== BUNDLE_VERSION) throw new Error(`unsupported bundle version: ${header.version}`);
   if (!header.fields || typeof header.fields !== 'object') throw new Error('bundle header has no fields');
-  if (!Array.isArray(header.files) || header.files.length === 0) throw new Error('bundle header has no files');
+  if (!Array.isArray(header.files)) throw new Error('bundle header has no files');
   const files = [];
   let off = dataStart;
   for (const entry of header.files) {
