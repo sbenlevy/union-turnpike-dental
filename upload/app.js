@@ -24,7 +24,7 @@
 //                       key ceremony).
 // ==========================================================================
 const CONFIG = {
-  RELAY_URL: 'https://secure-doc-upload-relay.uniontpkedental.workers.dev/upload',
+  RELAY_URL: 'https://secure-doc-upload-relay.uniontpkedental.workers.dev/upload', // <-- set at deploy: https://secure-doc-upload-relay.<account-subdomain>.workers.dev/upload (docs/GO-LIVE.md)
   PUBLIC_KEY_URL: './public-key.asc',
   KEY_LABEL: 'PRODUCTION — Union Tpke Dental office key (generated on softdentsync, Nov 26, 2026)',
   EXPECTED_KEY_FINGERPRINT: '306460877b9e71ab509eb27f08e569aa16ae8ddb',
@@ -226,6 +226,7 @@ codeInput.addEventListener('input', () => {
     nameAutoFilled = '';
     insEscapeChosen = false;
     insReviewDone = false;
+    resetInsurancePlans();
     updateInsuranceUi();
   }
 });
@@ -267,46 +268,76 @@ document.getElementById('ins-escape').addEventListener('click', (e) => {
   updateInsuranceUi();
 });
 
-for (const [toggleId, blockId] of [['ins-own', 'ins-sub'], ['ins2-own', 'ins2-sub']]) {
-  document.getElementById(toggleId).addEventListener('change', (e) => {
-    document.getElementById(blockId).style.display = e.target.checked ? 'none' : 'block';
+for (const n of [1, 2, 3]) {
+  document.getElementById(`ins${n}-own`).addEventListener('change', (e) => {
+    document.getElementById(`ins${n}-sub`).style.display = e.target.checked ? 'none' : 'block';
   });
 }
-document.getElementById('ins-has2').addEventListener('change', (e) => {
-  document.getElementById('ins2').style.display = e.target.checked ? 'block' : 'none';
-  document.getElementById('ins2-photos').style.display = e.target.checked ? 'block' : 'none';
-});
-insBox.addEventListener('input', () => {
+
+// Up to THREE plans, in billing order (Shai, Nov 26, 2026). Plan 1
+// ("Primary insurance") is always present; "Add another insurance"
+// reveals Plan 2 ("Secondary insurance"), then Plan 3 ("Third
+// insurance"). Photos are required for Plan 1, optional for 2 and 3.
+let insPlanCount = 1;
+const PLAN_SLOTS = ['primary', 'secondary', 'tertiary'];
+const PLAN_TITLES = ['Primary insurance', 'Secondary insurance', 'Third insurance'];
+
+function invalidateInsuranceReview() {
   insReviewDone = false;
   document.getElementById('ins-review').style.display = 'none';
   document.getElementById('ins-edit-btn').style.display = 'none';
+}
+function resetInsurancePlans() {
+  insPlanCount = 1;
+  document.getElementById('ins2-block').style.display = 'none';
+  document.getElementById('ins3-block').style.display = 'none';
+  document.getElementById('ins-add2').style.display = 'inline-block';
+  document.getElementById('ins-add3').style.display = 'inline-block';
+}
+document.getElementById('ins-add2').addEventListener('click', () => {
+  insPlanCount = 2;
+  document.getElementById('ins2-block').style.display = 'block';
+  document.getElementById('ins-add2').style.display = 'none';
+  invalidateInsuranceReview();
 });
+document.getElementById('ins-add3').addEventListener('click', () => {
+  insPlanCount = 3;
+  document.getElementById('ins3-block').style.display = 'block';
+  document.getElementById('ins-add3').style.display = 'none';
+  invalidateInsuranceReview();
+});
+insBox.addEventListener('input', invalidateInsuranceReview);
 
-function readPlan(prefix) {
+function readPlan(n) {
+  const prefix = `ins${n}-`;
   const own = insChecked(`${prefix}own`);
   return {
+    slot: PLAN_SLOTS[n - 1],
     carrier: insVal(`${prefix}carrier`),
     memberId: insVal(`${prefix}member`),
     group: insVal(`${prefix}group`) || null,
-    ownName: own,
-    subscriberName: own ? null : insVal(`${prefix}subname`) || null,
-    subscriberDob: own ? null : (document.getElementById(`${prefix}subdob`).value || null),
-    relationship: own ? null : document.getElementById(`${prefix}subrel`).value,
+    // null when the plan is in the patient's own name
+    subscriber: own ? null : {
+      name: insVal(`${prefix}subname`) || null,
+      dob: document.getElementById(`${prefix}subdob`).value || null,
+      relationship: document.getElementById(`${prefix}subrel`).value,
+    },
+    photos: { front: null, back: null }, // bundle file names, set at send time
   };
 }
 
-function collectInsuranceFields() {
-  return {
-    primary: readPlan('ins-'),
-    secondary: insChecked('ins-has2') ? readPlan('ins2-') : null,
-  };
+// The plans the patient has opened, in billing order.
+function activePlans() {
+  const plans = [];
+  for (let n = 1; n <= insPlanCount; n++) plans.push(readPlan(n));
+  return plans;
 }
 
 function planProblems(plan, label) {
   const problems = [];
   if (!plan.carrier) problems.push(`${label}: insurance company is missing`);
   if (!plan.memberId) problems.push(`${label}: member ID is missing`);
-  if (!plan.ownName && !plan.subscriberName) problems.push(`${label}: subscriber name is missing`);
+  if (plan.subscriber && !plan.subscriber.name) problems.push(`${label}: subscriber name is missing`);
   return problems;
 }
 
@@ -314,16 +345,16 @@ function describePlan(plan, label, lines) {
   lines.push(`${label}: ${plan.carrier}`);
   lines.push(`  Member ID: ${plan.memberId}`);
   if (plan.group) lines.push(`  Group number: ${plan.group}`);
-  if (plan.ownName) lines.push('  Plan is in your name');
-  else lines.push(`  Subscriber: ${plan.subscriberName ?? ''} (born ${plan.subscriberDob ?? '—'}, ${plan.relationship ?? ''})`);
+  if (!plan.subscriber) lines.push('  Plan is in your name');
+  else lines.push(`  Subscriber: ${plan.subscriber.name ?? ''} (born ${plan.subscriber.dob ?? '—'}, ${plan.subscriber.relationship ?? ''})`);
 }
 
 document.getElementById('ins-review-btn').addEventListener('click', () => {
-  const fields = collectInsuranceFields();
-  const problems = planProblems(fields.primary, 'Insurance');
-  if (fields.secondary) problems.push(...planProblems(fields.secondary, 'Second insurance'));
-  if (!document.getElementById('file-front').files[0]) problems.push('Front of card photo is missing');
-  if (!document.getElementById('file-back').files[0]) problems.push('Back of card photo is missing');
+  const plans = activePlans();
+  const problems = [];
+  plans.forEach((plan, i) => problems.push(...planProblems(plan, PLAN_TITLES[i])));
+  if (!document.getElementById('file1-front').files[0]) problems.push('Primary insurance: front of card photo is missing');
+  if (!document.getElementById('file1-back').files[0]) problems.push('Primary insurance: back of card photo is missing');
   const review = document.getElementById('ins-review');
   if (problems.length) {
     review.style.display = 'block';
@@ -331,10 +362,11 @@ document.getElementById('ins-review-btn').addEventListener('click', () => {
     insReviewDone = false;
     return;
   }
-  const lines = ['Please check this matches your card:', ''];
-  describePlan(fields.primary, 'Insurance', lines);
-  if (fields.secondary) { lines.push(''); describePlan(fields.secondary, 'Second insurance', lines); }
-  lines.push('', 'Photos: front and back of your card are attached.');
+  const lines = ['Please check this matches your cards:', ''];
+  plans.forEach((plan, i) => { if (i) lines.push(''); describePlan(plan, PLAN_TITLES[i], lines); });
+  lines.push('', 'We’ll bill them in this order.');
+  lines.push(plans.length > 1 ? 'Photos of your cards are attached.'
+                              : 'Photos: front and back of your card are attached.');
   review.style.display = 'block';
   review.textContent = lines.join('\n');
   document.getElementById('ins-edit-btn').style.display = 'inline-block';
@@ -347,23 +379,34 @@ document.getElementById('ins-edit-btn').addEventListener('click', () => {
   insBox.scrollIntoView({ behavior: 'smooth' });
 });
 
-async function collectInsuranceFiles() {
-  const picks = [
-    ['front', 'file-front', true],
-    ['back', 'file-back', true],
-    ['front2', 'file2-front', false],
-    ['back2', 'file2-back', false],
-  ];
+const ROLE_FOR_PICK = { '1-front': 'front', '1-back': 'back', '2-front': 'front2', '2-back': 'back2', '3-front': 'front3', '3-back': 'back3' };
+const BASE_FOR_ROLE = { front: 'card-front', back: 'card-back', front2: 'card2-front', back2: 'card2-back', front3: 'card3-front', back3: 'card3-back' };
+
+function bundleNameFor(role, origName) {
+  const m = String(origName ?? '').match(/\.([A-Za-z0-9]{1,8})$/);
+  return `${BASE_FOR_ROLE[role]}.${m ? m[1].toLowerCase() : 'jpg'}`;
+}
+
+// Collect the plans + photos into bundle inputs, stamping each
+// plan's photos.{front,back} with the bundle file name it travels
+// under (null when that side wasn't photographed).
+async function collectInsuranceBundle() {
+  const plans = activePlans();
   const files = [];
-  for (const [role, id, required] of picks) {
-    const f = document.getElementById(id).files[0];
-    if (!f) {
-      if (required) throw new Error('Please add photos of the front and back of your card.');
-      continue;
+  for (let n = 1; n <= insPlanCount; n++) {
+    const plan = plans[n - 1];
+    for (const side of ['front', 'back']) {
+      const f = document.getElementById(`file${n}-${side}`).files[0];
+      if (!f) {
+        if (n === 1) throw new Error('Please add photos of the front and back of your card.');
+        continue;
+      }
+      const role = ROLE_FOR_PICK[`${n}-${side}`];
+      plan.photos[side] = bundleNameFor(role, f.name);
+      files.push({ role, origName: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
     }
-    files.push({ role, origName: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
   }
-  return files;
+  return { fields: { plans }, files };
 }
 
 function download(name, data, type) {
@@ -444,8 +487,7 @@ form.addEventListener('submit', async (e) => {
         status.textContent = 'Please tap “Check what I typed” first, make sure it matches your card, then send.';
         return;
       }
-      const fields = collectInsuranceFields();
-      const files = await collectInsuranceFiles();
+      const { fields, files } = await collectInsuranceBundle();
       const bundleBytes = buildBundle({ fields, files });
       ({ ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
         uploadCode,
