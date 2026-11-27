@@ -26,6 +26,7 @@ export async function encryptDocument(openpgp, publicKeyArmored, {
   note = null,
   requestId = null,
   patientRecordId = null,
+  requestKind = null,
 }) {
   if (!uploadCode || !patientName || !originalFilename || !fileBytes) {
     throw new Error('uploadCode, patientName, originalFilename and fileBytes are all required');
@@ -58,5 +59,13 @@ export async function encryptDocument(openpgp, publicKeyArmored, {
   if (note) manifest.note = note;
   if (requestId) manifest.requestId = requestId;
   if (patientRecordId) manifest.patientRecordId = patientRecordId;
+  // Insurance kind ("dental" | "medical") for Insurance Cards codes:
+  // ADVISORY only — the page learned it from the &kind= link parameter
+  // the office's message carried. The authoritative kind lives on the
+  // request record in requests.json; the office agent prefers that
+  // and uses this only when there is no request record. (Named
+  // requestKind because the manifest's own `kind` field above is the
+  // document-type marker.)
+  if (requestKind) manifest.requestKind = requestKind;
   return { ciphertext: new Uint8Array(ciphertext), manifest };
 }
