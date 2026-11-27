@@ -47,6 +47,25 @@
        in ONE encrypted bundle (shared/bundle.mjs). The typed values
        never appear in the manifest or anywhere outside the bundle. -->
   <div id="insurance" style="display:none">
+    <!-- Dental-vs-medical gate (Nov 27, 2026): patients kept sending
+         MEDICAL cards (Medicare, health plans) for a DENTAL insurance
+         request, and patients with no dental insurance at all had no
+         way to say so. Before the plan form, this panel names the
+         difference in plain words and offers the no-insurance answer,
+         which travels as its own zero-file bundle. -->
+    <div class="gate" id="ins-dental-gate">
+      <h3 style="margin-top:.4rem" id="ins-gate-heading">Your dental insurance</h3>
+      <p id="ins-gate-line1">We need the insurance that pays for DENTAL work — cleanings, fillings, crowns. That's a separate card from your medical insurance.</p>
+      <p id="ins-gate-line2">Dental plans include: Delta Dental, MetLife, Cigna Dental, Guardian, Aetna Dental, UnitedHealthcare Dental.</p>
+      <p id="ins-gate-line3">Please don't send: a Medicare card, a medical/health card, or a pharmacy card — those don't cover dental work.</p>
+      <p id="ins-gate-line4">If one card covers both medical and dental, send it — we'll sort it out.</p>
+      <button type="button" id="ins-dental-yes">Yes, I have dental insurance</button>
+      <button type="button" class="secondary" id="ins-dental-no">I don't have dental insurance</button>
+    </div>
+
+    <div id="ins-plans" style="display:none">
+    <p><a href="#" id="ins-dental-back">← Back</a></p>
+    <p id="ins-dental-reminder" style="background:#fff3cd;border:1px solid #e0a800;border-radius:8px;padding:.6rem .9rem">One check: the card you're about to enter — does it cover dental work? If it's a medical-only card, go back and tap 'I don't have dental insurance' — or call us if you're not sure.</p>
     <fieldset id="ins1-block">
       <legend>Primary insurance</legend>
       <label for="ins1-carrier">Insurance company (carrier / payer)</label>
@@ -149,6 +168,7 @@
     <div id="ins-review" style="display:none"></div>
     <button type="button" class="secondary" id="ins-edit-btn" style="display:none">Edit</button>
     <p><a href="#" id="ins-escape">Just send a document instead</a></p>
+    </div><!-- /ins-plans -->
   </div>
 
   <div id="docstep">
