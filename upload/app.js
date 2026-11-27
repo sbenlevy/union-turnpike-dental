@@ -150,6 +150,10 @@ codeInput.addEventListener('change', () => fetchCodeInfo(codeInput.value));
 // failure — bad token, wrong code, malformed — is silently
 // ignored and the plain flow continues.
 let urlName = '';  // name decrypted from the ?n= token, once resolved
+let urlKind = 'dental';  // insurance kind from the &kind= link param
+                         // ("medical" only; absent/other = dental).
+                         // Wording-only on this page — the office
+                         // request record is the authoritative kind.
 
 function sanitizeUrlName(raw) {
   if (!raw) return '';
@@ -197,10 +201,13 @@ function applyUrlNameFallback() {
 (function initCodeFromUrl() {
   let param = '';
   let token = '';
+  let kindParam = '';
   try {
     param = new URLSearchParams(window.location.search).get('code') ?? '';
     token = new URLSearchParams(window.location.search).get('n') ?? '';
+    kindParam = new URLSearchParams(window.location.search).get('kind') ?? '';
   } catch { return; }
+  if (kindParam === 'medical') urlKind = 'medical';
   const normalized = normalizeCode(param);
   if (token && isValidCodeFormat(normalized)) {
     // Fire and forget: prefill whenever the decrypt resolves, unless
@@ -226,6 +233,7 @@ codeInput.addEventListener('input', () => {
     if (patientInput.value === nameAutoFilled) patientInput.value = '';
     nameAutoFilled = '';
     insEscapeChosen = false;
+    insDentalYes = false;
     insReviewDone = false;
     resetInsurancePlans();
     updateInsuranceUi();
@@ -248,6 +256,55 @@ const fileInput = document.getElementById('file');
 let insEscapeChosen = false;
 let insReviewDone = false;
 
+// Dental-vs-medical gate (Nov 27, 2026): the plan form stays hidden
+// behind #ins-dental-gate until the patient confirms they have
+// insurance OF THE KIND THE OFFICE ASKED FOR. The office sometimes
+// bills a medical plan, so an Insurance Cards request carries a kind
+// ("dental" default, or "medical" via the &kind=medical link param)
+// and the gate mirrors its wording. "I don't have … insurance" sends
+// its own zero-file bundle (see sendNoInsurance below) instead of
+// the form.
+const dentalGate = document.getElementById('ins-dental-gate');
+const insPlans = document.getElementById('ins-plans');
+let insDentalYes = false;
+
+const GATE_TEXTS = {
+  dental: {
+    heading: 'Your dental insurance',
+    line1: "We need the insurance that pays for DENTAL work — cleanings, fillings, crowns. That's a separate card from your medical insurance.",
+    line2: 'Dental plans include: Delta Dental, MetLife, Cigna Dental, Guardian, Aetna Dental, UnitedHealthcare Dental.',
+    line3: "Please don't send: a Medicare card, a medical/health card, or a pharmacy card — those don't cover dental work.",
+    line4: "If one card covers both medical and dental, send it — we'll sort it out.",
+    yes: 'Yes, I have dental insurance',
+    no: "I don't have dental insurance",
+    reminder: "One check: the card you're about to enter — does it cover dental work? If it's a medical-only card, go back and tap 'I don't have dental insurance' — or call us if you're not sure.",
+    thanks: "Thanks for letting us know. You don't need to send anything else. If you get dental insurance later, just tell the office.",
+  },
+  medical: {
+    heading: 'Your medical insurance',
+    line1: "We need the insurance that pays for MEDICAL care — doctor visits and hospital bills. For this, we're billing your medical plan, not a dental plan.",
+    line2: 'Medical plans include: Medicare, Aetna, Cigna, UnitedHealthcare, Empire BlueCross BlueShield, Humana.',
+    line3: "Please don't send: a dental-only card (like Delta Dental or MetLife Dental) — that doesn't cover medical care.",
+    line4: "If one card covers both medical and dental, send it — we'll sort it out.",
+    yes: 'Yes, I have medical insurance',
+    no: "I don't have medical insurance",
+    reminder: "One check: the card you're about to enter — does it cover medical care? If it's a dental-only card, go back and tap 'I don't have medical insurance' — or call us if you're not sure.",
+    thanks: "Thanks for letting us know. You don't need to send anything else. If you get medical insurance later, just tell the office.",
+  },
+};
+
+function applyGateKind() {
+  const t = GATE_TEXTS[urlKind] ?? GATE_TEXTS.dental;
+  document.getElementById('ins-gate-heading').textContent = t.heading;
+  document.getElementById('ins-gate-line1').textContent = t.line1;
+  document.getElementById('ins-gate-line2').textContent = t.line2;
+  document.getElementById('ins-gate-line3').textContent = t.line3;
+  document.getElementById('ins-gate-line4').textContent = t.line4;
+  document.getElementById('ins-dental-yes').textContent = t.yes;
+  document.getElementById('ins-dental-no').textContent = t.no;
+  document.getElementById('ins-dental-reminder').textContent = t.reminder;
+}
+
 const insVal = (id) => document.getElementById(id).value.trim();
 const insChecked = (id) => document.getElementById(id).checked;
 
@@ -260,8 +317,24 @@ function updateInsuranceUi() {
   insBox.style.display = active ? 'block' : 'none';
   docStep.style.display = active ? 'none' : 'block';
   fileInput.required = !active;
+  applyGateKind();
+  dentalGate.style.display = active && !insDentalYes ? 'block' : 'none';
+  insPlans.style.display = active && insDentalYes ? 'block' : 'none';
 }
 updateInsuranceUi();
+
+document.getElementById('ins-dental-yes').addEventListener('click', () => {
+  insDentalYes = true;
+  updateInsuranceUi();
+});
+document.getElementById('ins-dental-back').addEventListener('click', (e) => {
+  e.preventDefault();
+  insDentalYes = false;
+  updateInsuranceUi();
+});
+document.getElementById('ins-dental-no').addEventListener('click', () => {
+  sendNoInsurance();
+});
 
 document.getElementById('ins-escape').addEventListener('click', (e) => {
   e.preventDefault();
@@ -499,6 +572,80 @@ async function collectInsuranceBundle() {
   return { fields: { plans }, files };
 }
 
+// "I don't have … insurance" (dental or medical, per the request's
+// kind): the answer itself is the upload — a payload-v2 bundle with
+// header noInsurance: true + kind, plans: [] and ZERO files,
+// encrypted and sent through the exact same code + manifest contract
+// as a card bundle (manifest carries no insurance values — there are
+// none). The office agent records it and the request flips to
+// "No dental insurance" / "No medical insurance" in the console, so
+// staff stop waiting on a card that doesn't exist.
+async function sendNoInsurance() {
+  const noBtn = document.getElementById('ins-dental-no');
+  const yesBtn = document.getElementById('ins-dental-yes');
+  status.className = '';
+  try {
+    const uploadCode = codeInput.value.trim();
+    const patientName = patientInput.value.trim();
+    if (!publicKeyArmored) throw new Error('The encryption key has not loaded yet — wait a moment and try again.');
+    if (CONFIG.RELAY_URL && !isValidCodeFormat(uploadCode)) {
+      status.className = 'err';
+      status.textContent = CODE_PROBLEM_MESSAGE;
+      return;
+    }
+    if (!patientName) {
+      status.className = 'err';
+      status.textContent = 'Please type your name above first, so the office knows who answered.';
+      patientInput.focus();
+      return;
+    }
+    noBtn.disabled = true;
+    yesBtn.disabled = true;
+    if (CONFIG.RELAY_URL) await fetchCodeInfo(uploadCode);
+    const requestFields = codeInfo && codeInfoFor === normalizeCode(uploadCode)
+      ? {
+          category: codeInfo.category ?? null,
+          note: codeInfo.note ?? null,
+          requestId: codeInfo.requestId ?? null,
+          patientRecordId: codeInfo.patientRecordId ?? null,
+        }
+      : {};
+    if (requestFields.category === 'Insurance Cards') requestFields.requestKind = urlKind;
+    status.textContent = 'Encrypting in your browser…';
+    const bundleBytes = buildBundle({
+      fields: { plans: [] }, files: [], noInsurance: true, kind: urlKind,
+    });
+    const { ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
+      uploadCode,
+      patientName,
+      originalFilename: 'insurance-card-bundle',
+      fileBytes: bundleBytes,
+      ...requestFields,
+    });
+    if (CONFIG.RELAY_URL) {
+      status.textContent = 'Encrypted. Sending securely…';
+      const sent = await sendViaRelay({ uploadCode, patientName, ciphertext, manifest });
+      if (sent) {
+        status.className = 'ok';
+        status.textContent = GATE_TEXTS[urlKind].thanks;
+      } else {
+        noBtn.disabled = false;
+        yesBtn.disabled = false;
+      }
+    } else {
+      download('insurance-card-bundle.pgp', ciphertext, 'application/octet-stream');
+      download('insurance-card-bundle.manifest.json', JSON.stringify(manifest, null, 2), 'application/json');
+      status.className = 'ok';
+      status.textContent = GATE_TEXTS[urlKind].thanks;
+    }
+  } catch (err) {
+    status.className = 'err';
+    status.textContent = `Something went wrong: ${err.message}`;
+    noBtn.disabled = false;
+    yesBtn.disabled = false;
+  }
+}
+
 function download(name, data, type) {
   const url = URL.createObjectURL(new Blob([data], { type }));
   const a = document.createElement('a');
@@ -564,6 +711,7 @@ form.addEventListener('submit', async (e) => {
           patientRecordId: codeInfo.patientRecordId ?? null,
         }
       : {};
+    if (requestFields.category === 'Insurance Cards') requestFields.requestKind = urlKind;
 
     status.textContent = 'Encrypting in your browser…';
     let ciphertext, manifest, downloadBase;
@@ -572,13 +720,19 @@ form.addEventListener('submit', async (e) => {
       // photos in ONE encrypted bundle under the same code/manifest
       // contract. The manifest carries only the usual metadata —
       // never any typed insurance value.
+      if (!insDentalYes) {
+        status.className = 'err';
+        const t = GATE_TEXTS[urlKind];
+        status.textContent = `Please answer the insurance question above first — tap “${t.yes}” or “${t.no}”.`;
+        return;
+      }
       if (!insReviewDone) {
         status.className = 'err';
         status.textContent = 'Please tap “Check what I typed” first, make sure it matches your card, then send.';
         return;
       }
       const { fields, files } = await collectInsuranceBundle();
-      const bundleBytes = buildBundle({ fields, files });
+      const bundleBytes = buildBundle({ fields, files, kind: urlKind });
       ({ ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
         uploadCode,
         patientName,
