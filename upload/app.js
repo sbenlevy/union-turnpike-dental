@@ -33,6 +33,7 @@ const CONFIG = {
 import * as openpgp from './vendor/openpgp.min.mjs';
 import { encryptDocument } from './encrypt.mjs';
 import { buildBundle } from './bundle.mjs';
+import { downscalePhotoFile } from './images.mjs';
 import { isValidCodeFormat, normalizeCode } from './codes.mjs';
 
 const form = document.getElementById('upload-form');
@@ -274,11 +275,19 @@ for (const n of [1, 2, 3]) {
   });
 }
 
-// Up to THREE plans, in billing order (Shai, Nov 26, 2026). Plan 1
-// ("Primary insurance") is always present; "Add another insurance"
-// reveals Plan 2 ("Secondary insurance"), then Plan 3 ("Third
-// insurance"). Photos are required for Plan 1, optional for 2 and 3.
+// Up to THREE plans, in billing order (Shai, Nov 26, 2026), shown
+// by PROGRESSIVE DISCLOSURE: only Plan 1 ("Primary insurance") is
+// visible at first. A plain gate question — "Do you have another
+// insurance plan that also covers you?" — decides whether Plan 2
+// appears, and the same question again gates Plan 3. A plan block
+// is never displayed before it is declared, and undeclared plans
+// are simply absent from the bundle. For a DECLARED plan the front
+// and back photos are required — unless the patient checks
+// "I don't have this card with me right now" for that plan, which
+// records photosStatus "not_with_me" so staff can follow up.
 let insPlanCount = 1;
+let insGate1 = null; // null | 'yes' | 'no'
+let insGate2 = null;
 const PLAN_SLOTS = ['primary', 'secondary', 'tertiary'];
 const PLAN_TITLES = ['Primary insurance', 'Secondary insurance', 'Third insurance'];
 
@@ -289,23 +298,63 @@ function invalidateInsuranceReview() {
 }
 function resetInsurancePlans() {
   insPlanCount = 1;
+  insGate1 = null;
+  insGate2 = null;
   document.getElementById('ins2-block').style.display = 'none';
   document.getElementById('ins3-block').style.display = 'none';
-  document.getElementById('ins-add2').style.display = 'inline-block';
-  document.getElementById('ins-add3').style.display = 'inline-block';
+  document.getElementById('ins-gate1').style.display = 'block';
+  document.getElementById('ins-gate1-done').style.display = 'none';
+  document.getElementById('ins-gate2').style.display = 'none';
+  document.getElementById('ins-gate2-done').style.display = 'none';
 }
-document.getElementById('ins-add2').addEventListener('click', () => {
+document.getElementById('ins-gate1-yes').addEventListener('click', () => {
+  insGate1 = 'yes';
   insPlanCount = 2;
+  document.getElementById('ins-gate1').style.display = 'none';
   document.getElementById('ins2-block').style.display = 'block';
-  document.getElementById('ins-add2').style.display = 'none';
+  document.getElementById('ins-gate2').style.display = 'block';
   invalidateInsuranceReview();
 });
-document.getElementById('ins-add3').addEventListener('click', () => {
+document.getElementById('ins-gate1-no').addEventListener('click', () => {
+  insGate1 = 'no';
+  document.getElementById('ins-gate1').style.display = 'none';
+  document.getElementById('ins-gate1-done').style.display = 'block';
+  invalidateInsuranceReview();
+});
+document.getElementById('ins-gate1-change').addEventListener('click', (e) => {
+  e.preventDefault();
+  resetInsurancePlans();
+  invalidateInsuranceReview();
+});
+document.getElementById('ins-gate2-yes').addEventListener('click', () => {
+  insGate2 = 'yes';
   insPlanCount = 3;
+  document.getElementById('ins-gate2').style.display = 'none';
   document.getElementById('ins3-block').style.display = 'block';
-  document.getElementById('ins-add3').style.display = 'none';
   invalidateInsuranceReview();
 });
+document.getElementById('ins-gate2-no').addEventListener('click', () => {
+  insGate2 = 'no';
+  document.getElementById('ins-gate2').style.display = 'none';
+  document.getElementById('ins-gate2-done').style.display = 'block';
+  invalidateInsuranceReview();
+});
+document.getElementById('ins-gate2-change').addEventListener('click', (e) => {
+  e.preventDefault();
+  insGate2 = null;
+  insPlanCount = 2;
+  document.getElementById('ins3-block').style.display = 'none';
+  document.getElementById('ins-gate2').style.display = 'block';
+  document.getElementById('ins-gate2-done').style.display = 'none';
+  invalidateInsuranceReview();
+});
+for (const n of [1, 2, 3]) {
+  document.getElementById(`ins${n}-nocard`).addEventListener('change', (e) => {
+    document.getElementById(`file${n}-front`).disabled = e.target.checked;
+    document.getElementById(`file${n}-back`).disabled = e.target.checked;
+    invalidateInsuranceReview();
+  });
+}
 insBox.addEventListener('input', invalidateInsuranceReview);
 
 function readPlan(n) {
@@ -322,6 +371,7 @@ function readPlan(n) {
       dob: document.getElementById(`${prefix}subdob`).value || null,
       relationship: document.getElementById(`${prefix}subrel`).value,
     },
+    photosStatus: insChecked(`ins${n}-nocard`) ? 'not_with_me' : 'provided',
     photos: { front: null, back: null }, // bundle file names, set at send time
   };
 }
@@ -353,22 +403,60 @@ document.getElementById('ins-review-btn').addEventListener('click', () => {
   const plans = activePlans();
   const problems = [];
   plans.forEach((plan, i) => problems.push(...planProblems(plan, PLAN_TITLES[i])));
-  if (!document.getElementById('file1-front').files[0]) problems.push('Primary insurance: front of card photo is missing');
-  if (!document.getElementById('file1-back').files[0]) problems.push('Primary insurance: back of card photo is missing');
+  if (insGate1 === null) {
+    problems.push('Please answer: do you have another insurance plan that also covers you?');
+  } else if (insGate1 === 'yes' && insGate2 === null) {
+    problems.push('Please answer the same question under your second plan: do you have another insurance plan that also covers you?');
+  }
+  plans.forEach((plan, i) => {
+    if (plan.photosStatus === 'not_with_me') return;
+    const n = i + 1;
+    if (!document.getElementById(`file${n}-front`).files[0]) problems.push(`${PLAN_TITLES[i]}: front of card photo is missing`);
+    if (!document.getElementById(`file${n}-back`).files[0]) problems.push(`${PLAN_TITLES[i]}: back of card photo is missing`);
+  });
   const review = document.getElementById('ins-review');
+  review.textContent = '';
   if (problems.length) {
     review.style.display = 'block';
     review.textContent = 'Almost there:\n' + problems.map((p) => `• ${p}`).join('\n');
     insReviewDone = false;
     return;
   }
-  const lines = ['Please check this matches your cards:', ''];
-  plans.forEach((plan, i) => { if (i) lines.push(''); describePlan(plan, PLAN_TITLES[i], lines); });
-  lines.push('', 'We’ll bill them in this order.');
-  lines.push(plans.length > 1 ? 'Photos of your cards are attached.'
-                              : 'Photos: front and back of your card are attached.');
+  const head = document.createElement('div');
+  head.textContent = 'Please check this matches your cards:';
+  review.appendChild(head);
+  plans.forEach((plan, i) => {
+    const lines = [];
+    describePlan(plan, PLAN_TITLES[i], lines);
+    if (plan.photosStatus === 'not_with_me') {
+      lines.push('  Card photos: you don\'t have this card with you — the office may ask for them later.');
+    } else {
+      lines.push('  Card photos: front and back attached.');
+    }
+    const block = document.createElement('div');
+    block.style.marginTop = '.8rem';
+    const text = document.createElement('div');
+    text.textContent = lines.join('\n');
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'secondary';
+    edit.textContent = `Edit ${PLAN_TITLES[i].toLowerCase()}`;
+    edit.addEventListener('click', () => {
+      invalidateInsuranceReview();
+      document.getElementById(`ins${i + 1}-block`).scrollIntoView({ behavior: 'smooth' });
+    });
+    block.append(text, edit);
+    review.appendChild(block);
+  });
+  const order = document.createElement('div');
+  order.style.marginTop = '.8rem';
+  order.textContent = 'We’ll bill them in this order.';
+  review.appendChild(order);
+  const more = document.createElement('div');
+  more.style.marginTop = '.4rem';
+  more.textContent = 'If you have more than three insurance plans, please call the office and we’ll collect the rest.';
+  review.appendChild(more);
   review.style.display = 'block';
-  review.textContent = lines.join('\n');
   document.getElementById('ins-edit-btn').style.display = 'inline-block';
   insReviewDone = true;
 });
@@ -389,21 +477,23 @@ function bundleNameFor(role, origName) {
 
 // Collect the plans + photos into bundle inputs, stamping each
 // plan's photos.{front,back} with the bundle file name it travels
-// under (null when that side wasn't photographed).
+// under (null when that side wasn't photographed). Photos are
+// downscaled in the browser first (bundle flow only — see
+// shared/images.mjs) so a 3-plan bundle stays well under the email
+// size limit. A plan marked "not_with_me" contributes no files.
 async function collectInsuranceBundle() {
   const plans = activePlans();
   const files = [];
   for (let n = 1; n <= insPlanCount; n++) {
     const plan = plans[n - 1];
+    if (plan.photosStatus === 'not_with_me') continue;
     for (const side of ['front', 'back']) {
       const f = document.getElementById(`file${n}-${side}`).files[0];
-      if (!f) {
-        if (n === 1) throw new Error('Please add photos of the front and back of your card.');
-        continue;
-      }
+      if (!f) throw new Error(`Please add the ${side} photo of card ${n}, or check "I don't have this card with me right now".`);
       const role = ROLE_FOR_PICK[`${n}-${side}`];
-      plan.photos[side] = bundleNameFor(role, f.name);
-      files.push({ role, origName: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+      const { bytes, name } = await downscalePhotoFile(f);
+      plan.photos[side] = bundleNameFor(role, name);
+      files.push({ role, origName: name, bytes });
     }
   }
   return { fields: { plans }, files };
