@@ -39,6 +39,25 @@
 // manifest, the email subject, or anywhere else that travels in the
 // clear — test/card_bundle_test.mjs asserts the manifest stays clean.
 //
+// NO-INSURANCE ANSWER (Nov 27, 2026): a patient who taps
+// "I don't have dental insurance" (or "…medical insurance" for a
+// medical-kind request) on the page sends a bundle with ZERO files,
+// fields { plans: [] }, and header flags at the TOP level of the
+// header JSON (next to version): noInsurance: true and
+// kind: "dental" | "medical". Those are the canonical names —
+// parseBundle also accepts the earlier noDentalInsurance header key
+// as a legacy alias for noInsurance. The answer travels through the
+// same encrypted path as a card bundle, so the code is consumed
+// exactly once and the office gets a definite "no insurance"
+// instead of silence.
+//
+// KIND (Nov 27, 2026): an Insurance Cards request is for a DENTAL
+// card (default) or a MEDICAL card — the office sometimes bills a
+// medical plan. buildBundle stamps kind into the header whenever
+// the caller passes it; the office agent treats the request
+// record's kind as authoritative and the bundle/manifest kind as
+// advisory.
+//
 // The office agent detects the bundle by the magic after decryption;
 // every non-bundle payload keeps the legacy single-file path.
 
@@ -82,8 +101,12 @@ function extOf(filename) {
  * Build a bundle. `files` is an array of { role, origName, bytes }
  * (bytes: Uint8Array); roles must come from CARD_ROLES. Returns a
  * Uint8Array ready to hand to encryptDocument as fileBytes.
+ * `noInsurance: true` marks the patient's "I don't have … insurance"
+ * answer (fields { plans: [] }, zero files expected); `kind` is
+ * "dental" | "medical" (the request's insurance kind). The legacy
+ * `noDentalInsurance` option is accepted as an alias for noInsurance.
  */
-export function buildBundle({ fields, files }) {
+export function buildBundle({ fields, files, noInsurance = false, noDentalInsurance = false, kind = null }) {
   if (!fields || typeof fields !== 'object') throw new Error('bundle needs a fields object');
   if (!Array.isArray(files)) throw new Error('bundle needs a files array');
   // An empty files array is legitimate: every declared plan said
@@ -102,6 +125,8 @@ export function buildBundle({ fields, files }) {
     chunks.push(bytes);
   }
   const header = { version: BUNDLE_VERSION, fields, files: entries };
+  if (noInsurance === true || noDentalInsurance === true) header.noInsurance = true;
+  if (kind === 'dental' || kind === 'medical') header.kind = kind;
   const headerBytes = new TextEncoder().encode(JSON.stringify(header));
   const out = new Uint8Array(4 + 4 + headerBytes.length + chunks.reduce((n, c) => n + c.length, 0));
   out.set(MAGIC_BYTES, 0);
@@ -128,7 +153,9 @@ export function roleOfBundleName(name) {
 
 /**
  * Parse a bundle produced by buildBundle. Returns
- * { version, fields, files: [{ name, orig, role, bytes }] }.
+ * { version, fields, files: [{ name, orig, role, bytes }],
+ *   noInsurance, noDentalInsurance (legacy alias of noInsurance),
+ *   kind }.
  * Throws on any structural problem — the agent treats a malformed
  * bundle as a filing failure, never a partial success.
  */
@@ -163,5 +190,11 @@ export function parseBundle(bytes) {
     off += size;
   }
   if (off !== bytes.length) throw new Error('bundle has trailing bytes');
-  return { version: header.version, fields: header.fields, files };
+  const noIns = header.noInsurance === true || header.noDentalInsurance === true;
+  return {
+    version: header.version, fields: header.fields, files,
+    noInsurance: noIns,
+    noDentalInsurance: noIns, // legacy alias — same value
+    kind: (header.kind === 'dental' || header.kind === 'medical') ? header.kind : null,
+  };
 }
