@@ -24,7 +24,7 @@
 //                       key ceremony).
 // ==========================================================================
 const CONFIG = {
-  RELAY_URL: 'https://secure-doc-upload-relay.uniontpkedental.workers.dev/upload', // <-- set at deploy: https://secure-doc-upload-relay.<account-subdomain>.workers.dev/upload (docs/GO-LIVE.md)
+  RELAY_URL: 'https://secure-doc-upload-relay.uniontpkedental.workers.dev/upload',
   PUBLIC_KEY_URL: './public-key.asc',
   KEY_LABEL: 'PRODUCTION — Union Tpke Dental office key (generated on softdentsync, Nov 26, 2026)',
   EXPECTED_KEY_FINGERPRINT: '306460877b9e71ab509eb27f08e569aa16ae8ddb',
@@ -32,6 +32,7 @@ const CONFIG = {
 
 import * as openpgp from './vendor/openpgp.min.mjs';
 import { encryptDocument } from './encrypt.mjs';
+import { buildBundle } from './bundle.mjs';
 import { isValidCodeFormat, normalizeCode } from './codes.mjs';
 
 const form = document.getElementById('upload-form');
@@ -113,6 +114,7 @@ async function fetchCodeInfo(code) {
       patientInput.value = body.patientName;
       nameAutoFilled = body.patientName;
     }
+    updateInsuranceUi();
   } catch { /* silent fallback — plain flow */ }
 }
 codeInput.addEventListener('change', () => fetchCodeInfo(codeInput.value));
@@ -222,8 +224,147 @@ codeInput.addEventListener('input', () => {
     requestInfo.textContent = '';
     if (patientInput.value === nameAutoFilled) patientInput.value = '';
     nameAutoFilled = '';
+    insEscapeChosen = false;
+    insReviewDone = false;
+    updateInsuranceUi();
   }
 });
+
+// ---------------------------------------------------------------------
+// Insurance Cards flow (payload v2). When the code was issued for an
+// Insurance Cards request, the patient types their insurance details
+// AND photographs the front and back of the card; the page packs
+// fields + photos into ONE bundle (shared/bundle.mjs) and encrypts
+// the bundle exactly like a single document. The typed values exist
+// only inside that encrypted bundle — never in the manifest.
+// "Just send a document instead" falls back to the original
+// single-file flow, unchanged.
+// ---------------------------------------------------------------------
+const insBox = document.getElementById('insurance');
+const docStep = document.getElementById('docstep');
+const fileInput = document.getElementById('file');
+let insEscapeChosen = false;
+let insReviewDone = false;
+
+const insVal = (id) => document.getElementById(id).value.trim();
+const insChecked = (id) => document.getElementById(id).checked;
+
+function insuranceActive() {
+  return !!codeInfo && codeInfo.category === 'Insurance Cards' && !insEscapeChosen;
+}
+
+function updateInsuranceUi() {
+  const active = insuranceActive();
+  insBox.style.display = active ? 'block' : 'none';
+  docStep.style.display = active ? 'none' : 'block';
+  fileInput.required = !active;
+}
+updateInsuranceUi();
+
+document.getElementById('ins-escape').addEventListener('click', (e) => {
+  e.preventDefault();
+  insEscapeChosen = true;
+  updateInsuranceUi();
+});
+
+for (const [toggleId, blockId] of [['ins-own', 'ins-sub'], ['ins2-own', 'ins2-sub']]) {
+  document.getElementById(toggleId).addEventListener('change', (e) => {
+    document.getElementById(blockId).style.display = e.target.checked ? 'none' : 'block';
+  });
+}
+document.getElementById('ins-has2').addEventListener('change', (e) => {
+  document.getElementById('ins2').style.display = e.target.checked ? 'block' : 'none';
+  document.getElementById('ins2-photos').style.display = e.target.checked ? 'block' : 'none';
+});
+insBox.addEventListener('input', () => {
+  insReviewDone = false;
+  document.getElementById('ins-review').style.display = 'none';
+  document.getElementById('ins-edit-btn').style.display = 'none';
+});
+
+function readPlan(prefix) {
+  const own = insChecked(`${prefix}own`);
+  return {
+    carrier: insVal(`${prefix}carrier`),
+    memberId: insVal(`${prefix}member`),
+    group: insVal(`${prefix}group`) || null,
+    ownName: own,
+    subscriberName: own ? null : insVal(`${prefix}subname`) || null,
+    subscriberDob: own ? null : (document.getElementById(`${prefix}subdob`).value || null),
+    relationship: own ? null : document.getElementById(`${prefix}subrel`).value,
+  };
+}
+
+function collectInsuranceFields() {
+  return {
+    primary: readPlan('ins-'),
+    secondary: insChecked('ins-has2') ? readPlan('ins2-') : null,
+  };
+}
+
+function planProblems(plan, label) {
+  const problems = [];
+  if (!plan.carrier) problems.push(`${label}: insurance company is missing`);
+  if (!plan.memberId) problems.push(`${label}: member ID is missing`);
+  if (!plan.ownName && !plan.subscriberName) problems.push(`${label}: subscriber name is missing`);
+  return problems;
+}
+
+function describePlan(plan, label, lines) {
+  lines.push(`${label}: ${plan.carrier}`);
+  lines.push(`  Member ID: ${plan.memberId}`);
+  if (plan.group) lines.push(`  Group number: ${plan.group}`);
+  if (plan.ownName) lines.push('  Plan is in your name');
+  else lines.push(`  Subscriber: ${plan.subscriberName ?? ''} (born ${plan.subscriberDob ?? '—'}, ${plan.relationship ?? ''})`);
+}
+
+document.getElementById('ins-review-btn').addEventListener('click', () => {
+  const fields = collectInsuranceFields();
+  const problems = planProblems(fields.primary, 'Insurance');
+  if (fields.secondary) problems.push(...planProblems(fields.secondary, 'Second insurance'));
+  if (!document.getElementById('file-front').files[0]) problems.push('Front of card photo is missing');
+  if (!document.getElementById('file-back').files[0]) problems.push('Back of card photo is missing');
+  const review = document.getElementById('ins-review');
+  if (problems.length) {
+    review.style.display = 'block';
+    review.textContent = 'Almost there:\n' + problems.map((p) => `• ${p}`).join('\n');
+    insReviewDone = false;
+    return;
+  }
+  const lines = ['Please check this matches your card:', ''];
+  describePlan(fields.primary, 'Insurance', lines);
+  if (fields.secondary) { lines.push(''); describePlan(fields.secondary, 'Second insurance', lines); }
+  lines.push('', 'Photos: front and back of your card are attached.');
+  review.style.display = 'block';
+  review.textContent = lines.join('\n');
+  document.getElementById('ins-edit-btn').style.display = 'inline-block';
+  insReviewDone = true;
+});
+document.getElementById('ins-edit-btn').addEventListener('click', () => {
+  insReviewDone = false;
+  document.getElementById('ins-review').style.display = 'none';
+  document.getElementById('ins-edit-btn').style.display = 'none';
+  insBox.scrollIntoView({ behavior: 'smooth' });
+});
+
+async function collectInsuranceFiles() {
+  const picks = [
+    ['front', 'file-front', true],
+    ['back', 'file-back', true],
+    ['front2', 'file2-front', false],
+    ['back2', 'file2-back', false],
+  ];
+  const files = [];
+  for (const [role, id, required] of picks) {
+    const f = document.getElementById(id).files[0];
+    if (!f) {
+      if (required) throw new Error('Please add photos of the front and back of your card.');
+      continue;
+    }
+    files.push({ role, origName: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+  }
+  return files;
+}
 
 function download(name, data, type) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -267,8 +408,6 @@ form.addEventListener('submit', async (e) => {
   try {
     const uploadCode = document.getElementById('code').value.trim();
     const patientName = document.getElementById('patient').value.trim();
-    const file = document.getElementById('file').files[0];
-    if (!file) throw new Error('Choose a document first.');
     if (!publicKeyArmored) throw new Error('The encryption key has not loaded yet — wait a moment and try again.');
 
     // In production mode the relay is the authority on codes, but a
@@ -294,14 +433,41 @@ form.addEventListener('submit', async (e) => {
       : {};
 
     status.textContent = 'Encrypting in your browser…';
-    const fileBytes = new Uint8Array(await file.arrayBuffer());
-    const { ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
-      uploadCode,
-      patientName,
-      originalFilename: file.name,
-      fileBytes,
-      ...requestFields,
-    });
+    let ciphertext, manifest, downloadBase;
+    if (insuranceActive()) {
+      // Insurance Cards bundle (payload v2): typed fields + card
+      // photos in ONE encrypted bundle under the same code/manifest
+      // contract. The manifest carries only the usual metadata —
+      // never any typed insurance value.
+      if (!insReviewDone) {
+        status.className = 'err';
+        status.textContent = 'Please tap “Check what I typed” first, make sure it matches your card, then send.';
+        return;
+      }
+      const fields = collectInsuranceFields();
+      const files = await collectInsuranceFiles();
+      const bundleBytes = buildBundle({ fields, files });
+      ({ ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
+        uploadCode,
+        patientName,
+        originalFilename: 'insurance-card-bundle',
+        fileBytes: bundleBytes,
+        ...requestFields,
+      }));
+      downloadBase = 'insurance-card-bundle';
+    } else {
+      const file = document.getElementById('file').files[0];
+      if (!file) throw new Error('Choose a document first.');
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      ({ ciphertext, manifest } = await encryptDocument(openpgp, publicKeyArmored, {
+        uploadCode,
+        patientName,
+        originalFilename: file.name,
+        fileBytes,
+        ...requestFields,
+      }));
+      downloadBase = file.name.replace(/[^\w.-]+/g, '_');
+    }
 
     if (CONFIG.RELAY_URL) {
       status.textContent = 'Encrypted. Sending securely…';
@@ -311,13 +477,12 @@ form.addEventListener('submit', async (e) => {
         status.textContent = 'Done — your document was encrypted on this device and sent to the office. You can close this page.';
       }
     } else {
-      const base = file.name.replace(/[^\w.-]+/g, '_');
-      download(`${base}.pgp`, ciphertext, 'application/octet-stream');
-      download(`${base}.manifest.json`, JSON.stringify(manifest, null, 2), 'application/json');
+      download(`${downloadBase}.pgp`, ciphertext, 'application/octet-stream');
+      download(`${downloadBase}.manifest.json`, JSON.stringify(manifest, null, 2), 'application/json');
       status.className = 'ok';
       status.textContent =
         `Done. Your document was encrypted before leaving this device.\n` +
-        `Downloaded: ${base}.pgp and ${base}.manifest.json\n` +
+        `Downloaded: ${downloadBase}.pgp and ${downloadBase}.manifest.json\n` +
         `(POC mode — in production these are sent to the office automatically.)\n` +
         `SHA-256 of original: ${manifest.sha256}`;
     }
