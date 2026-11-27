@@ -8,12 +8,19 @@
   body { font-family: system-ui, sans-serif; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
   .poc { background: #fff3cd; border: 1px solid #e0a800; border-radius: 8px; padding: .6rem .9rem; font-size: .9rem; }
   label { display: block; margin: 1rem 0 .3rem; font-weight: 600; }
-  input[type=text], input[type=file] { width: 100%; box-sizing: border-box; padding: .5rem; font-size: 1rem; }
+  input[type=text], input[type=date], input[type=file], select { width: 100%; box-sizing: border-box; padding: .5rem; font-size: 1rem; }
+  label.check { font-weight: 400; display: flex; gap: .5rem; align-items: center; }
+  label.check input { width: auto; }
   button { margin-top: 1.2rem; padding: .7rem 1.2rem; font-size: 1rem; border: 0; border-radius: 8px; background: #0b5fa5; color: #fff; cursor: pointer; }
   button:disabled { opacity: .5; }
+  button.secondary { background: #e8e8e8; color: #1a1a1a; }
+  fieldset { border: 1px solid #bbb; border-radius: 8px; margin-top: 1.2rem; padding: .4rem 1rem 1rem; }
+  legend { font-weight: 700; padding: 0 .4rem; }
   #status { margin-top: 1rem; white-space: pre-wrap; font-size: .92rem; }
   .ok { color: #146c2e; } .err { color: #b3261e; }
   code { word-break: break-all; }
+  #ins-review { background: #f4f8f5; border: 1px solid #146c2e; border-radius: 8px; padding: .6rem 1rem; margin-top: 1rem; white-space: pre-wrap; }
+  .hint { font-size: .9rem; font-weight: 400; color: #444; }
 </style>
 </head>
 <body>
@@ -32,8 +39,81 @@
   <label for="patient">Patient name</label>
   <input type="text" id="patient" required autocomplete="off" placeholder="e.g. Jane Doe">
 
-  <label for="file">Document to send</label>
-  <input type="file" id="file" required>
+  <!-- Insurance Cards flow (payload v2): shown only when the code was
+       issued for an Insurance Cards request. The patient types the
+       card details AND photographs front + back; everything travels
+       in ONE encrypted bundle (shared/bundle.mjs). The typed values
+       never appear in the manifest or anywhere outside the bundle. -->
+  <div id="insurance" style="display:none">
+    <fieldset>
+      <legend>Your insurance</legend>
+      <label for="ins-carrier">Insurance company (carrier / payer)</label>
+      <input type="text" id="ins-carrier" autocomplete="off" placeholder="e.g. Delta Dental">
+      <label for="ins-member">Member ID <span class="hint">(required — on the front of your card)</span></label>
+      <input type="text" id="ins-member" autocomplete="off">
+      <label for="ins-group">Group number <span class="hint">(only if your card shows one)</span></label>
+      <input type="text" id="ins-group" autocomplete="off">
+      <label class="check"><input type="checkbox" id="ins-own" checked> This plan is in my name</label>
+      <div id="ins-sub" style="display:none">
+        <label for="ins-subname">Name of the person the plan belongs to (subscriber)</label>
+        <input type="text" id="ins-subname" autocomplete="off">
+        <label for="ins-subdob">Their date of birth</label>
+        <input type="date" id="ins-subdob">
+        <label for="ins-subrel">Their relationship to you</label>
+        <select id="ins-subrel">
+          <option value="Spouse">Spouse</option>
+          <option value="Parent">Parent</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <label class="check"><input type="checkbox" id="ins-has2"> I have a second insurance</label>
+      <div id="ins2" style="display:none">
+        <label for="ins2-carrier">Second insurance company</label>
+        <input type="text" id="ins2-carrier" autocomplete="off">
+        <label for="ins2-member">Second plan member ID</label>
+        <input type="text" id="ins2-member" autocomplete="off">
+        <label for="ins2-group">Second plan group number <span class="hint">(only if shown)</span></label>
+        <input type="text" id="ins2-group" autocomplete="off">
+        <label class="check"><input type="checkbox" id="ins2-own" checked> This plan is in my name</label>
+        <div id="ins2-sub" style="display:none">
+          <label for="ins2-subname">Name of the person the second plan belongs to</label>
+          <input type="text" id="ins2-subname" autocomplete="off">
+          <label for="ins2-subdob">Their date of birth</label>
+          <input type="date" id="ins2-subdob">
+          <label for="ins2-subrel">Their relationship to you</label>
+          <select id="ins2-subrel">
+            <option value="Spouse">Spouse</option>
+            <option value="Parent">Parent</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Photos of your card</legend>
+      <label for="file-front">Front of card</label>
+      <input type="file" id="file-front" accept="image/*">
+      <label for="file-back">Back of card</label>
+      <input type="file" id="file-back" accept="image/*">
+      <div id="ins2-photos" style="display:none">
+        <label for="file2-front">Front of second card <span class="hint">(if you have it handy)</span></label>
+        <input type="file" id="file2-front" accept="image/*">
+        <label for="file2-back">Back of second card</label>
+        <input type="file" id="file2-back" accept="image/*">
+      </div>
+    </fieldset>
+
+    <button type="button" class="secondary" id="ins-review-btn">Check what I typed</button>
+    <div id="ins-review" style="display:none"></div>
+    <button type="button" class="secondary" id="ins-edit-btn" style="display:none">Edit</button>
+    <p><a href="#" id="ins-escape">Just send a document instead</a></p>
+  </div>
+
+  <div id="docstep">
+    <label for="file">Document to send</label>
+    <input type="file" id="file" required>
+  </div>
 
   <button type="submit" id="go">Encrypt &amp; send document</button>
 </form>
