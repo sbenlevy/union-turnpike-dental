@@ -34,6 +34,7 @@ before anyone uploads anything.
 - `index.html` — the page (production wording; no POC banner)
 - `app.js` — page logic; encrypts in-browser, POSTs ciphertext to the relay
 - `encrypt.mjs`, `codes.mjs` — shared encryption + upload-code logic
+- `bundle.mjs` — payload-v2 insurance-card bundle builder/parser
 - `vendor/openpgp.min.mjs` — OpenPGP.js, vendored (no CDN dependency)
 - `public-key.asc` — the PRODUCTION office public key (generated on
   softdentsync, Nov 26, 2026). Public keys are safe to publish; the
