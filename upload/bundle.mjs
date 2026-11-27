@@ -9,14 +9,24 @@
 //   bundle = magic "SDUB" (4 bytes)
 //          ‖ uint32 big-endian header length
 //          ‖ UTF-8 JSON header { version: 2,
-//                                fields: { primary: {...},
-//                                          secondary: {...} | null },
+//                                fields: { plans: [ plan, … ] },
 //                                files: [ { name, orig, size }, … ] }
 //          ‖ file bytes concatenated in header order
 //
+// A plan is one insurance, in billing order (Shai, Nov 26, 2026 —
+// up to three, replacing the earlier primary + optional-secondary
+// shape):
+//   { slot: "primary" | "secondary" | "tertiary",
+//     carrier, memberId, group | null,
+//     subscriber: { name, dob, relationship } | null,  // null = the
+//                                // plan is in the patient's own name
+//     photos: { front: <bundle file name> | null,
+//               back:  <bundle file name> | null } }
+//
 // File names inside the bundle are role-labeled: card-front.<ext>,
-// card-back.<ext>, card2-front.<ext>, card2-back.<ext>. `orig` keeps
-// the patient's original filename for the filed name.
+// card-back.<ext> (primary), card2-front/back (secondary),
+// card3-front/back (tertiary). `orig` keeps the patient's original
+// filename for the filed name.
 //
 // PRIVACY: the typed insurance fields exist ONLY inside this
 // encrypted bundle (and, after decryption, in the office-side
@@ -32,19 +42,24 @@ export const BUNDLE_VERSION = 2;
 
 const MAGIC_BYTES = new TextEncoder().encode(BUNDLE_MAGIC);
 
-// Role order is the bundle order: primary front/back, then secondary.
-export const CARD_ROLES = ['front', 'back', 'front2', 'back2'];
+// Role order is the bundle order: primary front/back, then
+// secondary, then tertiary.
+export const CARD_ROLES = ['front', 'back', 'front2', 'back2', 'front3', 'back3'];
 export const CARD_ROLE_LABELS = {
-  front: 'Insurance Cards (Front)',
-  back: 'Insurance Cards (Back)',
-  front2: 'Insurance Cards (Front, 2nd plan)',
-  back2: 'Insurance Cards (Back, 2nd plan)',
+  front: 'Insurance Cards (Primary, Front)',
+  back: 'Insurance Cards (Primary, Back)',
+  front2: 'Insurance Cards (Secondary, Front)',
+  back2: 'Insurance Cards (Secondary, Back)',
+  front3: 'Insurance Cards (Tertiary, Front)',
+  back3: 'Insurance Cards (Tertiary, Back)',
 };
 const ROLE_TO_BUNDLE_NAME = {
   front: 'card-front',
   back: 'card-back',
   front2: 'card2-front',
   back2: 'card2-back',
+  front3: 'card3-front',
+  back3: 'card3-back',
 };
 
 function bundleBaseName(role) {
