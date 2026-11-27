@@ -21,6 +21,8 @@
   code { word-break: break-all; }
   #ins-review { background: #f4f8f5; border: 1px solid #146c2e; border-radius: 8px; padding: .6rem 1rem; margin-top: 1rem; white-space: pre-wrap; }
   .hint { font-size: .9rem; font-weight: 400; color: #444; }
+  .gate { border: 1px solid #bbb; border-radius: 8px; margin-top: 1.2rem; padding: .4rem 1rem 1rem; }
+  .gate button { margin-top: .4rem; margin-right: .6rem; }
 </style>
 </head>
 <body>
@@ -45,7 +47,7 @@
        in ONE encrypted bundle (shared/bundle.mjs). The typed values
        never appear in the manifest or anywhere outside the bundle. -->
   <div id="insurance" style="display:none">
-    <fieldset>
+    <fieldset id="ins1-block">
       <legend>Primary insurance</legend>
       <label for="ins1-carrier">Insurance company (carrier / payer)</label>
       <input type="text" id="ins1-carrier" autocomplete="off" placeholder="e.g. Delta Dental">
@@ -70,8 +72,15 @@
       <input type="file" id="file1-front" accept="image/*">
       <label for="file1-back">Back of card</label>
       <input type="file" id="file1-back" accept="image/*">
-      <p><button type="button" class="secondary" id="ins-add2">Add another insurance</button></p>
+      <label class="check"><input type="checkbox" id="ins1-nocard"> I don't have this card with me right now</label>
     </fieldset>
+
+    <div class="gate" id="ins-gate1">
+      <p><strong>Do you have another insurance plan that also covers you?</strong></p>
+      <button type="button" class="secondary" id="ins-gate1-yes">Yes</button>
+      <button type="button" class="secondary" id="ins-gate1-no">No</button>
+    </div>
+    <p id="ins-gate1-done" style="display:none">No other insurance plan. <a href="#" id="ins-gate1-change">Change</a></p>
 
     <fieldset id="ins2-block" style="display:none">
       <legend>Secondary insurance</legend>
@@ -94,12 +103,19 @@
           <option value="Other">Other</option>
         </select>
       </div>
-      <label for="file2-front">Front of second card <span class="hint">(if you have it handy)</span></label>
+      <label for="file2-front">Front of second card</label>
       <input type="file" id="file2-front" accept="image/*">
-      <label for="file2-back">Back of second card <span class="hint">(if you have it handy)</span></label>
+      <label for="file2-back">Back of second card</label>
       <input type="file" id="file2-back" accept="image/*">
-      <p><button type="button" class="secondary" id="ins-add3">Add another insurance</button></p>
+      <label class="check"><input type="checkbox" id="ins2-nocard"> I don't have this card with me right now</label>
     </fieldset>
+
+    <div class="gate" id="ins-gate2" style="display:none">
+      <p><strong>Do you have another insurance plan that also covers you?</strong></p>
+      <button type="button" class="secondary" id="ins-gate2-yes">Yes</button>
+      <button type="button" class="secondary" id="ins-gate2-no">No</button>
+    </div>
+    <p id="ins-gate2-done" style="display:none">No other insurance plan. <a href="#" id="ins-gate2-change">Change</a></p>
 
     <fieldset id="ins3-block" style="display:none">
       <legend>Third insurance</legend>
@@ -122,10 +138,11 @@
           <option value="Other">Other</option>
         </select>
       </div>
-      <label for="file3-front">Front of third card <span class="hint">(if you have it handy)</span></label>
+      <label for="file3-front">Front of third card</label>
       <input type="file" id="file3-front" accept="image/*">
-      <label for="file3-back">Back of third card <span class="hint">(if you have it handy)</span></label>
+      <label for="file3-back">Back of third card</label>
       <input type="file" id="file3-back" accept="image/*">
+      <label class="check"><input type="checkbox" id="ins3-nocard"> I don't have this card with me right now</label>
     </fieldset>
 
     <button type="button" class="secondary" id="ins-review-btn">Check what I typed</button>
