@@ -46,62 +46,86 @@
        never appear in the manifest or anywhere outside the bundle. -->
   <div id="insurance" style="display:none">
     <fieldset>
-      <legend>Your insurance</legend>
-      <label for="ins-carrier">Insurance company (carrier / payer)</label>
-      <input type="text" id="ins-carrier" autocomplete="off" placeholder="e.g. Delta Dental">
-      <label for="ins-member">Member ID <span class="hint">(required — on the front of your card)</span></label>
-      <input type="text" id="ins-member" autocomplete="off">
-      <label for="ins-group">Group number <span class="hint">(only if your card shows one)</span></label>
-      <input type="text" id="ins-group" autocomplete="off">
-      <label class="check"><input type="checkbox" id="ins-own" checked> This plan is in my name</label>
-      <div id="ins-sub" style="display:none">
-        <label for="ins-subname">Name of the person the plan belongs to (subscriber)</label>
-        <input type="text" id="ins-subname" autocomplete="off">
-        <label for="ins-subdob">Their date of birth</label>
-        <input type="date" id="ins-subdob">
-        <label for="ins-subrel">Their relationship to you</label>
-        <select id="ins-subrel">
+      <legend>Primary insurance</legend>
+      <label for="ins1-carrier">Insurance company (carrier / payer)</label>
+      <input type="text" id="ins1-carrier" autocomplete="off" placeholder="e.g. Delta Dental">
+      <label for="ins1-member">Member ID <span class="hint">(required — on the front of your card)</span></label>
+      <input type="text" id="ins1-member" autocomplete="off">
+      <label for="ins1-group">Group number <span class="hint">(only if your card shows one)</span></label>
+      <input type="text" id="ins1-group" autocomplete="off">
+      <label class="check"><input type="checkbox" id="ins1-own" checked> This plan is in my name</label>
+      <div id="ins1-sub" style="display:none">
+        <label for="ins1-subname">Name of the person the plan belongs to (subscriber)</label>
+        <input type="text" id="ins1-subname" autocomplete="off">
+        <label for="ins1-subdob">Their date of birth</label>
+        <input type="date" id="ins1-subdob">
+        <label for="ins1-subrel">Their relationship to you</label>
+        <select id="ins1-subrel">
           <option value="Spouse">Spouse</option>
           <option value="Parent">Parent</option>
           <option value="Other">Other</option>
         </select>
       </div>
-      <label class="check"><input type="checkbox" id="ins-has2"> I have a second insurance</label>
-      <div id="ins2" style="display:none">
-        <label for="ins2-carrier">Second insurance company</label>
-        <input type="text" id="ins2-carrier" autocomplete="off">
-        <label for="ins2-member">Second plan member ID</label>
-        <input type="text" id="ins2-member" autocomplete="off">
-        <label for="ins2-group">Second plan group number <span class="hint">(only if shown)</span></label>
-        <input type="text" id="ins2-group" autocomplete="off">
-        <label class="check"><input type="checkbox" id="ins2-own" checked> This plan is in my name</label>
-        <div id="ins2-sub" style="display:none">
-          <label for="ins2-subname">Name of the person the second plan belongs to</label>
-          <input type="text" id="ins2-subname" autocomplete="off">
-          <label for="ins2-subdob">Their date of birth</label>
-          <input type="date" id="ins2-subdob">
-          <label for="ins2-subrel">Their relationship to you</label>
-          <select id="ins2-subrel">
-            <option value="Spouse">Spouse</option>
-            <option value="Parent">Parent</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-      </div>
+      <label for="file1-front">Front of card</label>
+      <input type="file" id="file1-front" accept="image/*">
+      <label for="file1-back">Back of card</label>
+      <input type="file" id="file1-back" accept="image/*">
+      <p><button type="button" class="secondary" id="ins-add2">Add another insurance</button></p>
     </fieldset>
 
-    <fieldset>
-      <legend>Photos of your card</legend>
-      <label for="file-front">Front of card</label>
-      <input type="file" id="file-front" accept="image/*">
-      <label for="file-back">Back of card</label>
-      <input type="file" id="file-back" accept="image/*">
-      <div id="ins2-photos" style="display:none">
-        <label for="file2-front">Front of second card <span class="hint">(if you have it handy)</span></label>
-        <input type="file" id="file2-front" accept="image/*">
-        <label for="file2-back">Back of second card</label>
-        <input type="file" id="file2-back" accept="image/*">
+    <fieldset id="ins2-block" style="display:none">
+      <legend>Secondary insurance</legend>
+      <label for="ins2-carrier">Insurance company (carrier / payer)</label>
+      <input type="text" id="ins2-carrier" autocomplete="off">
+      <label for="ins2-member">Member ID <span class="hint">(required — on the front of your card)</span></label>
+      <input type="text" id="ins2-member" autocomplete="off">
+      <label for="ins2-group">Group number <span class="hint">(only if your card shows one)</span></label>
+      <input type="text" id="ins2-group" autocomplete="off">
+      <label class="check"><input type="checkbox" id="ins2-own" checked> This plan is in my name</label>
+      <div id="ins2-sub" style="display:none">
+        <label for="ins2-subname">Name of the person the plan belongs to (subscriber)</label>
+        <input type="text" id="ins2-subname" autocomplete="off">
+        <label for="ins2-subdob">Their date of birth</label>
+        <input type="date" id="ins2-subdob">
+        <label for="ins2-subrel">Their relationship to you</label>
+        <select id="ins2-subrel">
+          <option value="Spouse">Spouse</option>
+          <option value="Parent">Parent</option>
+          <option value="Other">Other</option>
+        </select>
       </div>
+      <label for="file2-front">Front of second card <span class="hint">(if you have it handy)</span></label>
+      <input type="file" id="file2-front" accept="image/*">
+      <label for="file2-back">Back of second card <span class="hint">(if you have it handy)</span></label>
+      <input type="file" id="file2-back" accept="image/*">
+      <p><button type="button" class="secondary" id="ins-add3">Add another insurance</button></p>
+    </fieldset>
+
+    <fieldset id="ins3-block" style="display:none">
+      <legend>Third insurance</legend>
+      <label for="ins3-carrier">Insurance company (carrier / payer)</label>
+      <input type="text" id="ins3-carrier" autocomplete="off">
+      <label for="ins3-member">Member ID <span class="hint">(required — on the front of your card)</span></label>
+      <input type="text" id="ins3-member" autocomplete="off">
+      <label for="ins3-group">Group number <span class="hint">(only if your card shows one)</span></label>
+      <input type="text" id="ins3-group" autocomplete="off">
+      <label class="check"><input type="checkbox" id="ins3-own" checked> This plan is in my name</label>
+      <div id="ins3-sub" style="display:none">
+        <label for="ins3-subname">Name of the person the plan belongs to (subscriber)</label>
+        <input type="text" id="ins3-subname" autocomplete="off">
+        <label for="ins3-subdob">Their date of birth</label>
+        <input type="date" id="ins3-subdob">
+        <label for="ins3-subrel">Their relationship to you</label>
+        <select id="ins3-subrel">
+          <option value="Spouse">Spouse</option>
+          <option value="Parent">Parent</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <label for="file3-front">Front of third card <span class="hint">(if you have it handy)</span></label>
+      <input type="file" id="file3-front" accept="image/*">
+      <label for="file3-back">Back of third card <span class="hint">(if you have it handy)</span></label>
+      <input type="file" id="file3-back" accept="image/*">
     </fieldset>
 
     <button type="button" class="secondary" id="ins-review-btn">Check what I typed</button>
